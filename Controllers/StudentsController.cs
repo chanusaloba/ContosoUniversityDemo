@@ -13,10 +13,12 @@ namespace ContosoUniversity.Controllers
     public class StudentsController : Controller
     {
         private readonly SchoolContext _context;
+        private IStudentRepository _studentRepository;
 
         public StudentsController(SchoolContext context)
         {
             _context = context;
+            _studentRepository = new StudentRepository(_context);
         }
 
         // GET: Students
@@ -41,7 +43,7 @@ namespace ContosoUniversity.Controllers
 
             ViewData["CurrentFilter"] = searchString;
 
-            var students = from s in _context.Students
+            var students = from s in _studentRepository.GetStudents()
                            select s;
             if (!String.IsNullOrEmpty(searchString))
             {
@@ -76,11 +78,7 @@ namespace ContosoUniversity.Controllers
                 return NotFound();
             }
 
-            var student = await _context.Students
-                .Include(s => s.Enrollments)
-                    .ThenInclude(e => e.Course)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.ID == id);
+            var student = await _studentRepository.GetStudentByID(id);
 
             if (student == null)
             {
@@ -108,8 +106,8 @@ namespace ContosoUniversity.Controllers
             {
                 if (ModelState.IsValid)
                 {
-                    _context.Add(student);
-                    await _context.SaveChangesAsync();
+                    _studentRepository.InsertStudent(student);
+                    await _studentRepository.Save();
                     return RedirectToAction(nameof(Index));
                 }
             }
@@ -131,7 +129,7 @@ namespace ContosoUniversity.Controllers
                 return NotFound();
             }
 
-            var student = await _context.Students.FindAsync(id);
+            var student = await _studentRepository.EditGetStudentByID(id);
             if (student == null)
             {
                 return NotFound();
@@ -180,9 +178,7 @@ namespace ContosoUniversity.Controllers
                 return NotFound();
             }
 
-            var student = await _context.Students
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.ID == id);
+            var student = await _studentRepository.DeleteGetStudentByID(id);
             if (student == null)
             {
                 return NotFound();
@@ -203,7 +199,7 @@ namespace ContosoUniversity.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var student = await _context.Students.FindAsync(id);
+            var student = await _studentRepository.EditGetStudentByID(id);
             if (student == null)
             {
                 return RedirectToAction(nameof(Index));
@@ -211,8 +207,8 @@ namespace ContosoUniversity.Controllers
 
             try
             {
-                _context.Students.Remove(student);
-                await _context.SaveChangesAsync();
+                _studentRepository.DeleteStudent(student);
+                await _studentRepository.Save();
                 return RedirectToAction(nameof(Index));
             }
             catch (DbUpdateException /* ex */)
