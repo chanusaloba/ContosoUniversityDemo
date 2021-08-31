@@ -13,19 +13,19 @@ namespace ContosoUniversity.Controllers
     public class CoursesController : Controller
     {
         private readonly SchoolContext _context;
+        private UnitOfWork _unitOfWork;
 
         public CoursesController(SchoolContext context)
         {
             _context = context;
+            _unitOfWork = new UnitOfWork(_context);
         }
 
         // GET: Courses
         public async Task<IActionResult> Index()
         {
-            var courses = _context.Courses
-                .Include(c => c.Department)
-                .AsNoTracking();
-            return View(await courses.ToListAsync());
+            var courses = _unitOfWork.CourseRepository.Get(includeProperties: "Department");
+            return View(await courses);
         }
 
         // GET: Courses/Details/5
@@ -36,10 +36,8 @@ namespace ContosoUniversity.Controllers
                 return NotFound();
             }
 
-            var course = await _context.Courses
-                .Include(c => c.Department)
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.CourseID == id);
+            Course course = await _unitOfWork.CourseRepository.GetByID(id);
+
             if (course == null)
             {
                 return NotFound();
@@ -64,8 +62,9 @@ namespace ContosoUniversity.Controllers
         {
             if (ModelState.IsValid)
             {
-                _context.Add(course);
-                await _context.SaveChangesAsync();
+                _unitOfWork.CourseRepository.Insert(course);
+                await _unitOfWork.Save();
+
                 return RedirectToAction(nameof(Index));
             }
             PopulateDepartmentsDropDownList(course.DepartmentID);
@@ -80,9 +79,8 @@ namespace ContosoUniversity.Controllers
                 return NotFound();
             }
 
-            var course = await _context.Courses
-                .AsNoTracking()
-                .FirstOrDefaultAsync(m => m.CourseID == id);
+            Course course = await _unitOfWork.CourseRepository.GetByID(id);
+
             if (course == null)
             {
                 return NotFound();
@@ -96,35 +94,25 @@ namespace ContosoUniversity.Controllers
         // For more details, see http://go.microsoft.com/fwlink/?LinkId=317598.
         [HttpPost, ActionName("Edit")]
         [ValidateAntiForgeryToken]
-        public async Task<IActionResult> EditPost(int? id)
+        public async Task<IActionResult> EditPost([Bind("CourseID,Title,Credits,DepartmentID")]
+         Course course)
         {
-            if (id == null)
+            try
             {
-                return NotFound();
-            }
-
-            var courseToUpdate = await _context.Courses
-                .FirstOrDefaultAsync(c => c.CourseID == id);
-
-            if (await TryUpdateModelAsync<Course>(courseToUpdate,
-                "",
-                c => c.Credits, c => c.DepartmentID, c => c.Title))
-            {
-                try
-                {
-                    await _context.SaveChangesAsync();
-                }
-                catch (DbUpdateException /* ex */)
-                {
-                    //Log the error (uncomment ex variable name and write a log.)
-                    ModelState.AddModelError("", "Unable to save changes. " +
-                        "Try again, and if the problem persists, " +
-                        "see your system administrator.");
-                }
+                _unitOfWork.CourseRepository.Update(course);
+                await _context.SaveChangesAsync();
                 return RedirectToAction(nameof(Index));
             }
-            PopulateDepartmentsDropDownList(courseToUpdate.DepartmentID);
-            return View(courseToUpdate);
+            catch (DbUpdateException /* ex */)
+            {
+                //Log the error (uncomment ex variable name and write a log.)
+                ModelState.AddModelError("", "Unable to save changes. " +
+                    "Try again, and if the problem persists, " +
+                    "see your system administrator.");
+            }
+
+            PopulateDepartmentsDropDownList(course.DepartmentID);
+            return View(course);
         }
 
         // GET: Courses/Delete/5
@@ -152,18 +140,19 @@ namespace ContosoUniversity.Controllers
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> DeleteConfirmed(int id)
         {
-            var course = await _context.Courses.FindAsync(id);
-            _context.Courses.Remove(course);
-            await _context.SaveChangesAsync();
+            Course course = await _unitOfWork.CourseRepository.GetByID(id);
+            await _unitOfWork.CourseRepository.Delete(id);
+            await _unitOfWork.Save();
+
             return RedirectToAction(nameof(Index));
         }
 
         private void PopulateDepartmentsDropDownList(object selectedDepartment = null)
         {
-            var departmentsQuery = from d in _context.Departments
-                                   orderby d.Name
-                                   select d;
-            ViewBag.DepartmentID = new SelectList(departmentsQuery.AsNoTracking(), "DepartmentID", "Name", selectedDepartment);
+            var departmentsQuery = _unitOfWork.DepartmentRepository.Get(
+             orderBy: q => q.OrderBy(d => d.Name));
+
+            ViewBag.DepartmentID = new SelectList(departmentsQuery.Result, "DepartmentID", "Name", selectedDepartment);
         }
         private bool CourseExists(int id)
         {
